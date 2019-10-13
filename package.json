@@ -1,0 +1,11 @@
+{
+  "name": "epicgamerbot",
+  "version": "1.0.0",
+  "description": "Discord bot for ACC Competition",
+  "main": "bot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
