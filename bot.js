@@ -1,3 +1,4 @@
+const streamifier = require('streamifier')
 const Discord = require('discord.js')
 const client = new Discord.Client()
 
@@ -49,12 +50,13 @@ function startRecording(msg) {
 			guildId: channel.guild.id,
 			receiver: receiver,
 			bitrate: channel.bitrate,
-			streams: [],
+			buffer: null,
 			timerId: null		
 		})
+		console.log('At time of receiver creation, guild id = ' + channel.guild.id);
 		cxn.playFile('stranger_c418.wav')
 		cxn.on('speaking', (user, speaking) => onUserSpeaking(user, speaking, channel.guild.id, cxn))
-		receiver.on('pcm', (user, buf) => onPCM(user, buf, channel.guildId, cxn))
+		receiver.on('pcm', (user, buf) => onPCM(user, buf, channel.guild.id, cxn))
 	}).catch(console.log)
 }
 
@@ -68,16 +70,28 @@ function stopRecording(voiceChannel) {
 
 // create channel
 function onUserSpeaking(user, speaking, guildId, cxn) {
-	console.log(user + ' is speaking: ' + speaking)
-	let stream = cxn.receivers[0].createPCMStream(user)
-	console.log('created stream')
-	//stream.on('data', chunk => console.log(`Received ${chunk.length} bytes of data`))
-	stream.on('readable', function () {
-		console.log('stream is readable')
-		cxn.playConvertedStream(stream)
-	})
+	console.log(user + ' is speaking: ' + speaking);
+	let rec = activeReceivers.filter(rec => guildId === rec.guildId)[0];
+	rec.timerId = setTimeout(() => playBuffer(guildId, cxn), 5000);
+	console.log('Set timeout');
+	setTimeout(() => console.log('timer works', 1000));
 }
 
-function onPCM(user, buf, guildId, cxn) {
-	console.log('received buffer from ' + user)
+function onPCM(user, newbuf, guildId, cxn) {
+	var rec  = activeReceivers.filter(rec => guildId === rec.guildId)[0];
+	var oldbuf = rec.buffer;
+	if (!oldbuf) {
+		rec.buffer = newbuf;
+	} 
+	else {
+		rec.buffer = Buffer.concat([oldbuf, newbuf], oldbuf.length + newbuf.length);
+	}
+}
+
+function playBuffer(guildId, cxn) {
+	console.log('Playing buffer')
+	let receiver = activeReceivers.filter(rec => guildId === rec.guildId)[0];
+	let stream = streamifier.createReadStream(receiver.buffer);
+	cxn.playConvertedStream(stream);
+	console.log('Played buffer');
 }
