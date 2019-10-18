@@ -19,8 +19,12 @@ client.on('message', msg => {
 	if(msg.content.toUpperCase() === '!EGB LINK START') {
 		// attempt to join voice channel of sender
 		if (!msg.guild) return; // ignore if the message wasn't in a server
-		if (msg.member.voiceChannel)
-			startRecording(msg)
+		if (msg.member.voiceChannel) {
+			if (activeReceivers.find(rec => rec.guildId === msg.guild.id)) 				
+				msg.reply('I\'m already in a voice channel for this guild')
+			else
+				startRecording(msg)
+		}
 		else {
 			msg.reply('It looks like you\'re not in a voice channel right now')
 		}
@@ -51,7 +55,8 @@ function startRecording(msg) {
 			receiver: receiver,
 			bitrate: channel.bitrate,
 			buffer: null,
-			timerId: null		
+			timerId: null,
+			usersInChannel: [] // actually only has users in channel who have spoken at least once
 		})
 		console.log('At time of receiver creation, guild id = ' + channel.guild.id);
 		cxn.playFile('stranger_c418.wav')
@@ -63,7 +68,7 @@ function startRecording(msg) {
 // leaves channel and updates status
 function stopRecording(voiceChannel) {
 	voiceChannel.leave()
-	//clearInterval(activeReceivers.filter(rec => rec.guildId === voiceChannel.guildId)[0].timerId)
+	// TODO check if bot is in selected channel
 	activeReceivers = activeReceivers.filter(rec => rec.guildId !== voiceChannel.guild.id)
 	client.user.setActivity('Chilling like a villain')
 }
@@ -71,20 +76,46 @@ function stopRecording(voiceChannel) {
 // create channel
 function onUserSpeaking(user, speaking, guildId, cxn) {
 	console.log(user + ' is speaking: ' + speaking);
-	let rec = activeReceivers.filter(rec => guildId === rec.guildId)[0];
-	rec.timerId = setTimeout(() => playBuffer(guildId, cxn), 5000);
-	console.log('Set timeout');
-	setTimeout(() => console.log('timer works', 1000));
+	let recData = activeReceivers.find(rec => guildId === rec.guildId);
+	recData.timerId = setTimeout(() => playBuffer(guildId, cxn), 10000);
+	recData.usersInChannel.push({
+		userId: user.id,
+		lastSpeakTime: null
+	})
 }
 
 function onPCM(user, newbuf, guildId, cxn) {
-	var rec  = activeReceivers.filter(rec => guildId === rec.guildId)[0];
-	var oldbuf = rec.buffer;
+	// get receiver data
+	let recData  = activeReceivers.find(rec => guildId === rec.guildId);
+
+	// get time since last speaking
+	let userData = recData.usersInChannel.find(test => test.userId === user.id);
+	let now = new Date();
+	let padbuf = null;
+	if (userData.lastSpeakTime) {
+		let deltaTime = now - userData.lastSpeakTime;
+		if (deltaTime > 500) {
+			console.log('Delta Time: ' + deltaTime);
+			let bytesToFill = 32 * deltaTime * 48 / 8;
+			console.log('Bytes to fill: ' + bytesToFill);
+			padbuf = Buffer.alloc(bytesToFill);
+			console.log('padbuf.length: ' + padbuf.length);
+		}
+	}
+	userData.lastSpeakTime = now;
+
+	// append data to buffer
+	let oldbuf = recData.buffer;
 	if (!oldbuf) {
-		rec.buffer = newbuf;
+		recData.buffer = newbuf;
 	} 
 	else {
-		rec.buffer = Buffer.concat([oldbuf, newbuf], oldbuf.length + newbuf.length);
+		if (padbuf) {
+			recData.buffer = Buffer.concat([oldbuf, padbuf, newbuf], oldbuf.length + padbuf.length + newbuf.length);
+			console.log('Buffer write appears successful')
+		}
+		else
+			recData.buffer = Buffer.concat([oldbuf, newbuf], oldbuf.length + newbuf.length);
 	}
 }
 
