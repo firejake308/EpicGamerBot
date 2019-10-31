@@ -73,7 +73,7 @@ function startRecording(msg) {
 		console.log('At time of receiver creation, guild id = ' + channel.guild.id);
 		cxn.playFile('stranger_c418.wav')
 		cxn.on('speaking', (user, speaking) => onUserSpeaking(user, speaking, channel.guild.id, cxn))
-		receiver.on('pcm', (user, buf) => onPCM(user, buf, channel.guild.id, cxn))
+		receiver.on('pcm', (user, buf) => onPCM(user.id, buf, channel.guild.id))
 	}).catch(console.log)
 }
 
@@ -95,20 +95,25 @@ function onUserSpeaking(user, speaking, guildId, cxn) {
 	})
 }
 
-const MAX_BUF = 10 * 48000 * 32 / 8; // 10 s * samples/s * bits/sample * bytes/bit
-function onPCM(user, newbuf, guildId, cxn) {
-	// get receiver data
-	let recData  = activeReceivers.find(rec => guildId === rec.guildId);
-
+/**
+ * Makes silence buffer up to current time in buffer for user
+ * @param {*} user the user whose buffer we are padding with silence
+ * @param {*} recData receiver data for the channel
+ * @param {*} force whether or  to forcibly add silence, regardless of delta time
+ */
+function fillSilence(userId, recData, force) {
 	// get time since last speaking
-	let userData = recData.usersInChannel.find(test => test.userId === user.id);
+	let userData = recData.usersInChannel.find(test => test.userId === userId);
 	let now = new Date();
 	let padbuf = null;
+
+	if (force)
+	debugger;
 
 	// if user hasn't been added yet
 	if (!userData) {
 		userData = {
-			userId: user.id,
+			userId,
 			lastSpeakTime: now
 		};
 		recData.usersInChannel.push(userData);
@@ -117,7 +122,7 @@ function onPCM(user, newbuf, guildId, cxn) {
 	// fill pad buffer with silence PRN
 	if (userData.lastSpeakTime) {
 		let deltaTime = now - userData.lastSpeakTime;
-		if (deltaTime > 500) {
+		if (force || deltaTime > 500) {
 			console.log('Delta Time: ' + deltaTime);
 			let bytesToFill = 32 * deltaTime * 48 / 8;
 			console.log('Bytes to fill: ' + bytesToFill);
@@ -126,6 +131,17 @@ function onPCM(user, newbuf, guildId, cxn) {
 		}
 	}
 	userData.lastSpeakTime = now;
+
+	return padbuf;
+}
+
+const MAX_BUF = 10 * 48000 * 32 / 8; // 10 s * samples/s * bits/sample * bytes/bit
+function onPCM(userId, newbuf, guildId, force = false) {
+	// get receiver data
+	let recData  = activeReceivers.find(rec => guildId === rec.guildId);
+
+	// build silence buffer
+	const padbuf = fillSilence(userId, recData, force);
 
 	// append data to buffer
 	let oldbuf = recData.buffer;
@@ -145,16 +161,14 @@ function onPCM(user, newbuf, guildId, cxn) {
 		if (newLength < MAX_BUF) {
 			recData.buffer = Buffer.concat([oldbuf, sumbuf], newLength);
 			recData.bufferOffset += sumbuf.length;
-			debugger;
 		}
-		// otherwise, fill remaining, then overwrite existing buffer TODO stopping point 10/22
+		// otherwise, fill remaining, then overwrite existing buffer
 		else {
 			const oldOffset = recData.bufferOffset;
 			const oldLength = recData.buffer.length;
 			var bytesWritten = 0;
 			// concatenate to fill up to MAX_BUF
 			if (oldLength < MAX_BUF) {
-				debugger;
 				if (oldLength != oldOffset) {
 					console.log('oldLength: ' + oldLength);
 					console.log('oldOffset: ' + oldOffset);
@@ -165,7 +179,6 @@ function onPCM(user, newbuf, guildId, cxn) {
 			}
 			// if just copying will overflow
 			else if (recData.bufferOffset + sumbuf.length > MAX_BUF) {
-				debugger;
 				// overwrite at the offset position until MAX_BUF reached
 				try {
 				sumbuf.copy(recData.buffer, recData.bufferOffset, 0, MAX_BUF - recData.bufferOffset);
@@ -197,11 +210,25 @@ function playBuffer(guildId, cxn) {
 	console.log('Playing buffer')
 	let recData = activeReceivers.find(rec => guildId === rec.guildId);
 
+	if (!recData.buffer) {
+		console.log('There is no buffer to play')
+		return;
+	}
+
+	// fill with silence up to current time
+	for (let user of recData.usersInChannel) {
+		onPCM(user.userId, Buffer.allocUnsafe(0), guildId, force = true);
+	}
+
+	// the no loop buffer is rearranged to be in sequential order
 	let noLoopBuffer = Buffer.allocUnsafe(recData.buffer.length);
 	recData.buffer.copy(noLoopBuffer, 0, recData.bufferOffset, recData.buffer.length);
 	recData.buffer.copy(noLoopBuffer, recData.buffer.length - recData.bufferOffset, 0, recData.bufferOffset);
 	
 	let stream = streamifier.createReadStream(noLoopBuffer);
-	cxn.playConvertedStream(stream);
+	cxn.playConvertedStream(stream).on('end', () => {
+		cxn.setSpeaking(false); // doesn't actually update on Discord
+		console.log('done speaking'); // this does work
+	});
 	console.log('Played buffer');
 }
