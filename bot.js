@@ -53,6 +53,7 @@ client.on('speak', evt => {
 	console.log(evt)
 })
 
+// TODO BFG this
 client.login('***REMOVED***')
 
 // joins channel and updates status
@@ -66,7 +67,8 @@ function startRecording(msg) {
 			guildId: channel.guild.id,
 			receiver: receiver,
 			bitrate: channel.bitrate,
-			usersInChannel: [], // actually only has users in channel who have spoken at least once
+			usersInChannel: [], // actually only has users in channel who have spoken at least once,
+			startTime: new Date(),
 		})
 		console.log('At time of receiver creation, guild id = ' + channel.guild.id);
 		cxn.playFile('EpicGamerIntro.m4a')
@@ -89,7 +91,7 @@ function onUserSpeaking(user, speaking, guildId) {
 	let recData = activeReceivers.find(rec => guildId === rec.guildId);
 	recData.usersInChannel.push({
 		userId: user.id,
-		lastSpeakTime: null,
+		lastSpeakTime: recData.startTime,
 		buffer: null,
 		bufferOffset: 0
 	})
@@ -99,7 +101,7 @@ function onUserSpeaking(user, speaking, guildId) {
  * Makes silence buffer up to current time in buffer for user
  * @param {*} user the user whose buffer we are padding with silence
  * @param {*} recData receiver data for the channel
- * @param {*} force whether or  to forcibly add silence, regardless of delta time
+ * @param {*} force whether or not to forcibly add silence, regardless of delta time
  */
 function fillSilence(userId, recData, force) {
 	// get time since last speaking
@@ -107,14 +109,11 @@ function fillSilence(userId, recData, force) {
 	let now = new Date();
 	let padbuf = null;
 
-	if (force)
-	debugger;
-
 	// if user hasn't been added yet
 	if (!userData) {
 		userData = {
 			userId,
-			lastSpeakTime: now,
+			lastSpeakTime: recData.startTime,
 			buffer: null,
 			bufferOffset: 0
 		};
@@ -127,6 +126,8 @@ function fillSilence(userId, recData, force) {
 		if (force || deltaTime > 500) {
 			console.log('Delta Time: ' + deltaTime);
 			let bytesToFill = 32 * deltaTime * 48 / 8;
+			// writing more than 2 MAX_BUFs does nothing
+			bytesToFill = Math.min(Math.floor(bytesToFill / MAX_BUF), 1)*MAX_BUF + bytesToFill % MAX_BUF;
 			console.log('Bytes to fill: ' + bytesToFill);
 			padbuf = Buffer.alloc(bytesToFill);
 			console.log('padbuf.length: ' + padbuf.length);
@@ -134,6 +135,7 @@ function fillSilence(userId, recData, force) {
 	}
 	userData.lastSpeakTime = now;
 
+	debugger;
 	return padbuf;
 }
 
@@ -148,62 +150,74 @@ function onPCM(userId, newbuf, guildId, force = false) {
 
 	// append data to buffer
 	let oldbuf = userData.buffer;
-	// writing the first buffer is easy
+	// combine all of the new stuff
+	const sumbuf = padbuf ? Buffer.concat([padbuf, newbuf], padbuf.length + newbuf.length) : newbuf;
+
+	// the first time you write the buffer
 	if (!oldbuf) {
-		userData.buffer = newbuf;
-		userData.bufferOffset += newbuf.length;
-	} 
-	else {
-		// combine all of the new stuff
-		const sumbuf = padbuf ? Buffer.concat([padbuf, newbuf], padbuf.length + newbuf.length) : newbuf;
-
-		// calculate new length of buffer, if everyhting is just concatenated
-		const newLength = oldbuf.length + sumbuf.length
-
-		// if there's still room, then write all of it
-		if (newLength < MAX_BUF) {
-			userData.buffer = Buffer.concat([oldbuf, sumbuf], newLength);
-			userData.bufferOffset += sumbuf.length;
+		if (sumbuf.length < MAX_BUF) {
+			userData.buffer = sumbuf;
+			userData.bufferOffset += newbuf.length;
+			return;
 		}
-		// otherwise, fill remaining, then overwrite existing buffer
 		else {
-			const oldOffset = userData.bufferOffset;
-			const oldLength = userData.buffer.length;
-			var bytesWritten = 0;
-			// concatenate to fill up to MAX_BUF
-			if (oldLength < MAX_BUF) {
-				if (oldLength != oldOffset) {
-					console.log('oldLength: ' + oldLength);
-					console.log('oldOffset: ' + oldOffset);
-				}
-				userData.buffer = Buffer.concat([oldbuf, sumbuf], MAX_BUF);
-				bytesWritten = MAX_BUF - oldOffset
-				userData.bufferOffset = 0;
+			userData.buffer = Buffer.allocUnsafe(MAX_BUF);
+		}
+	}
+
+	// calculate new length of buffer, if everyhting is just concatenated
+	const newLength = sumbuf.length + (oldbuf ? oldbuf.length : 0);
+
+	// if there's still room, then write all of it
+	if (newLength < MAX_BUF) {
+		userData.buffer = Buffer.concat([oldbuf, sumbuf], newLength);
+		userData.bufferOffset += sumbuf.length;
+	}
+	// otherwise, fill remaining, then overwrite existing buffer
+	else {
+		const oldOffset = userData.bufferOffset;
+		const oldLength = userData.buffer.length;
+		var bytesWritten = 0;
+
+		// concatenate to fill up to MAX_BUF
+		if (oldLength < MAX_BUF) {
+			if (oldLength != oldOffset) {
+				console.log('If this is printed to the console, run for your life');
+				console.log('oldLength: ' + oldLength);
+				console.log('oldOffset: ' + oldOffset);
 			}
-			// if just copying will overflow
-			else if (userData.bufferOffset + sumbuf.length > MAX_BUF) {
-				// overwrite at the offset position until MAX_BUF reached
-				try {
-				sumbuf.copy(userData.buffer, userData.bufferOffset, 0, MAX_BUF - userData.bufferOffset);
-				} catch (e) {
-					console.log('bufferOffset: ' + userData.bufferOffset);
-					console.log('MAX_BUF: ' + MAX_BUF);
-					console.log('sumbuf.length: ' + sumbuf.length)
-				}
-				bytesWritten = MAX_BUF - oldOffset
-				userData.bufferOffset = 0;
-			}
-			// paste in whatever is left
-			// TODO allow for more than 10 seconds of silence. Will require while loop
+			userData.buffer = Buffer.concat([oldbuf, sumbuf], MAX_BUF);
+			bytesWritten = MAX_BUF - oldOffset;
+			userData.bufferOffset = 0;
+		}
+		// if just copying will overflow
+		else if (userData.bufferOffset + sumbuf.length > MAX_BUF) {
+			// overwrite at the offset position until MAX_BUF reached
 			try {
-				sumbuf.copy(userData.buffer, userData.bufferOffset, bytesWritten);
-			} catch (e) {	
+			sumbuf.copy(userData.buffer, userData.bufferOffset, 0, MAX_BUF - userData.bufferOffset);
+			} catch (e) {
 				console.log('bufferOffset: ' + userData.bufferOffset);
 				console.log('MAX_BUF: ' + MAX_BUF);
 				console.log('sumbuf.length: ' + sumbuf.length)
 			}
-
-			userData.bufferOffset += sumbuf.length - bytesWritten;
+			bytesWritten = MAX_BUF - oldOffset
+			userData.bufferOffset = 0;
+		}
+		// paste in whatever is left
+		try {
+			while (bytesWritten < sumbuf.length) {
+				sumbuf.copy(userData.buffer, userData.bufferOffset, bytesWritten);
+				// the number of bytes written is either the number of bytes left to write, or the 
+				// maximum number of bytes I could have possibly written, whichever is less
+				const delta = Math.min(MAX_BUF - userData.bufferOffset, sumbuf.length - bytesWritten);
+				bytesWritten += delta;
+				// the % resets to zero if we filled the buffer
+				userData.bufferOffset = (userData.bufferOffset + delta) % MAX_BUF;
+			}
+		} catch (e) {	
+			console.log('bufferOffset: ' + userData.bufferOffset);
+			console.log('MAX_BUF: ' + MAX_BUF);
+			console.log('sumbuf.length: ' + sumbuf.length)
 		}
 	}
 }
@@ -212,6 +226,7 @@ function playBuffer(guildId, cxn) {
 	console.log('Playing buffer')
 	let recData = activeReceivers.find(rec => guildId === rec.guildId);
 	let masterBuffer = null;
+	const now = new Date();
 	recData.usersInChannel.forEach(userData => {
 		if (!userData.buffer) {
 			console.log('There is no buffer to play')
@@ -240,6 +255,11 @@ function playBuffer(guildId, cxn) {
 				masterBuffer[i] = masterBuffer[i] + noLoopBuffer[i];
 			}
 		}
+
+		// reset user's buffer
+		userData.buffer = null;
+		userData.bufferOffset = 0;
+		userData.lastSpeakTime = now;
 	});
 
 	let stream = streamifier.createReadStream(masterBuffer);
@@ -247,5 +267,4 @@ function playBuffer(guildId, cxn) {
 		cxn.setSpeaking(false); // doesn't actually update on Discord
 		console.log('done speaking'); // this does work
 	});
-	console.log('Played buffer');
 }
