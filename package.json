@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "node-lame": "^1.2.0",
     "streamifier": "^0.1.1"
   }
 }

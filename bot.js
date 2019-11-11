@@ -1,6 +1,8 @@
 const streamifier = require('streamifier')
 const Discord = require('discord.js')
 const client = new Discord.Client()
+const Lame = require('node-lame').Lame;
+const fs = require('fs');
 
 const API_KEY = require('./apiKey.js')
 
@@ -16,16 +18,7 @@ client.on('ready', () => {
 	// create channels in guilds, if not already present
 	client.guilds.forEach(guild => {
 		if (!guild.channels.some(chan => chan.name === 'epic-gamer-moments'))
-			guild.createChannel('epic-gamer-moments', { 
-				type: 'text',
-				permissionOverwrites: [{
-					deny: Discord.Permissions.FLAGS.SEND_MESSAGES,
-					id: guild.defaultRole
-				}, {
-					allow: Discord.Permissions.FLAGS.SEND_MESSAGES,
-					id: client.user.id
-				}]
-			});
+			createEpicChannel(guild);
 	})
 })
 
@@ -59,6 +52,19 @@ client.on('message', msg => {
 				playBuffer(recData.guildId, recData.receiver.voiceConnection);
 			}
 			else 
+				msg.reply('It looks like I\'m not in your voice channel right now')
+		}
+		else
+			msg.reply('It looks like you\'re not in a voice channel right now')
+	}
+	if (msg.content.toUpperCase() === '!EGB SAVE') {
+		if (msg.member.voiceChannel) {
+			let recData = activeReceivers.find(rec => rec.guildId === msg.guild.id);
+			if (recData) {
+				postMP3(msg.guild);
+				msg.reply('Now THAT was an epic gamer moment');
+			}
+			else
 				msg.reply('It looks like I\'m not in your voice channel right now')
 		}
 		else
@@ -282,5 +288,37 @@ function playBuffer(guildId, cxn) {
 	cxn.playConvertedStream(stream).on('end', () => {
 		cxn.setSpeaking(false); // doesn't actually update on Discord
 		console.log('done speaking'); // this does work
+	});
+
+	// create mp3 from buffer
+	const encoder = new Lame({
+		output: guildId + '.mp3',
+		bitrate: recData.receiver.voiceConnection.channel.bitrate
+	}).setBuffer(masterBuffer);
+	encoder.encode().then(() => console.log('File written')).catch(console.error);
+}
+
+async function postMP3(guild) {
+	let chan = guild.channels.find(chan => chan.name === 'epic-gamer-moments');
+	if (!chan) {
+		await createEpicChannel(guild);
+		chan = guild.channels.find(chan => chan.name === 'epic-gamer-moments');
+	}
+	const path = guild.id + '.mp3';
+	chan.send({files: [{attachment: path, name: 'epicGamerMoment.mp3'}]}).then(
+		() => fs.unlink(path).catch(console.error)
+	).catch(console.error);
+}
+
+async function createEpicChannel(guild) {
+	return guild.createChannel('epic-gamer-moments', { 
+		type: 'text',
+		permissionOverwrites: [{
+			deny: Discord.Permissions.FLAGS.SEND_MESSAGES,
+			id: guild.defaultRole
+		}, {
+			allow: Discord.Permissions.FLAGS.SEND_MESSAGES,
+			id: client.user.id
+		}]
 	});
 }
