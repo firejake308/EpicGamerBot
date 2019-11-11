@@ -2,6 +2,8 @@ const streamifier = require('streamifier')
 const Discord = require('discord.js')
 const client = new Discord.Client()
 
+const API_KEY = require('./apiKey.js')
+
 // to add the bot to a server, visit this link:
 // https://discordapp.com/api/oauth2/authorize?client_id=632379244940361738&scope=bot&permissions=51481616
 
@@ -68,8 +70,7 @@ client.on('speak', evt => {
 	console.log(evt)
 })
 
-// TODO BFG this
-client.login('***REMOVED***')
+client.login(API_KEY);
 
 // joins channel and updates status
 function startRecording(msg) {
