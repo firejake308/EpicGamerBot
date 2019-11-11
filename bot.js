@@ -10,6 +10,21 @@ var activeReceivers = []
 client.on('ready', () => {
 	console.log(`Logged in as ${client.user.tag}`)
 	client.user.setActivity('Chilling like a villain')
+
+	// create channels in guilds, if not already present
+	client.guilds.forEach(guild => {
+		if (!guild.channels.some(chan => chan.name === 'epic-gamer-moments'))
+			guild.createChannel('epic-gamer-moments', { 
+				type: 'text',
+				permissionOverwrites: [{
+					deny: Discord.Permissions.FLAGS.SEND_MESSAGES,
+					id: guild.defaultRole
+				}, {
+					allow: Discord.Permissions.FLAGS.SEND_MESSAGES,
+					id: client.user.id
+				}]
+			});
+	})
 })
 
 client.on('message', msg => {
