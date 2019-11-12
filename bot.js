@@ -161,7 +161,7 @@ function fillSilence(userId, recData, force) {
 	return padbuf;
 }
 
-const MAX_BUF = 10 * 48000 * 32 / 8; // 10 s * samples/s * bits/sample * bytes/bit
+const MAX_BUF = 15 * 48000 * 32 / 8; // 15 s * samples/s * bits/sample * bytes/bit
 function onPCM(userId, newbuf, guildId, force = false) {
 	// get receiver data
 	let recData = activeReceivers.find(rec => guildId === rec.guildId);
