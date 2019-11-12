@@ -123,7 +123,7 @@ function onUserSpeaking(user, speaking, guildId) {
  * Makes silence buffer up to current time in buffer for user
  * @param {*} user the user whose buffer we are padding with silence
  * @param {*} recData receiver data for the channel
- * @param {*} force whether or not to forcibly add silence, regardless of delta time
+ * @param {boolean} force whether or not to forcibly add silence, regardless of delta time
  */
 function fillSilence(userId, recData, force) {
 	// get time since last speaking
@@ -310,6 +310,9 @@ async function postMP3(guild) {
 	).catch(console.error);
 }
 
+/**
+ * Creates the channel that messages are posted to
+ */
 async function createEpicChannel(guild) {
 	return guild.createChannel('epic-gamer-moments', { 
 		type: 'text',
