@@ -320,5 +320,12 @@ async function createEpicChannel(guild) {
 			allow: Discord.Permissions.FLAGS.SEND_MESSAGES,
 			id: client.user.id
 		}]
-	});
+	}).then(channel => channel.send(`Epic Gamer Bot has entered the chat!
+To summon the bot into a voice channel, type \`!egb link start\`.
+To replay the last 15 seconds of voice chat, type \`!egb replay\`. 
+To save a replay in the #epic-gamer-moments channel, type \`!egb stop\`.
+To stop recording voice chat, type \`!egb stop\`.
+Commands can be typed into any text channel, as long as you are in the desired voice channel.
+EpicGamerBot can only listen to one channel at a time per server.`
+	));
 }
